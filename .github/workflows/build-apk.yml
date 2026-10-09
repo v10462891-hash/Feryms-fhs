@@ -6,9 +6,14 @@ on:
     branches:
       - ferym-gram
 
+permissions:
+  contents: read
+
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
       - name: Checkout Ferym Gram
@@ -21,17 +26,26 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Set up Android SDK
+      - name: Locate Android SDK
+        shell: bash
         run: |
-          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+
+          if [ ! -x "$SDK/cmdline-tools/16.0/bin/sdkmanager" ]; then
+            echo "::error::sdkmanager not found in $SDK/cmdline-tools/16.0/bin"
+            find "$SDK/cmdline-tools" -name sdkmanager -type f 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "$SDK/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
 
       - name: Accept Android SDK licenses
-        run: |
-          yes | sdkmanager --licenses >/dev/null || true
+        run: yes | sdkmanager --licenses
 
       - name: Install Android SDK components
         run: |
@@ -46,9 +60,11 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build APK
+        shell: bash
         run: |
           set -o pipefail
-          ./gradlew :TMessagesProj_AppStandalone:assembleAfatDebug --no-daemon --stacktrace 2>&1 | tee gradle-cloud.log
+          ./gradlew :TMessagesProj_AppStandalone:assembleAfatDebug \
+            --no-daemon --stacktrace 2>&1 | tee gradle-cloud.log
 
       - name: Upload APK
         if: success()
